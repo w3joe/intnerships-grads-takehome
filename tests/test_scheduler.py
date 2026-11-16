@@ -168,6 +168,17 @@ class SchedulerTests(unittest.TestCase):
                   "2026-11-06T17:00:00.250000Z"),
         ])
 
+    def test_override_changes_owner_at_subsecond_boundaries(self):
+        start = "2026-11-06T17:00:00.125000Z"
+        end = "2026-11-06T17:00:00.250000Z"
+        self.assertEqual(self.render(
+            [entry("dana", start, end)], until="2026-11-06T17:00:01Z"
+        ), [
+            entry("alice", timestamp(), start),
+            entry("dana", start, end),
+            entry("alice", end, "2026-11-06T17:00:01Z"),
+        ])
+
     def test_daily_rotation_across_month_boundary(self):
         self.schedule["handover_interval_days"] = 1
         self.assertEqual(self.render(start=timestamp(24), until=timestamp(27)), [
