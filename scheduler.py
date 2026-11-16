@@ -1,7 +1,8 @@
-"""Render an on-call rotation by partitioning time at ownership boundaries."""
+"""Render an on-call rotation by processing chronological ownership events."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import groupby
 
 
 @dataclass(frozen=True)
@@ -97,39 +98,45 @@ def render_schedule(
     if start >= until:
         return []
 
-    boundaries = {start, until}
-    # Jump directly into the rotation rather than replaying earlier shifts.
-    first_handover = (start - schedule_start) // duration + 1
+    first_shift = (start - schedule_start) // duration
+    base_user = users[first_shift % len(users)]
+    # At equal timestamps, apply override ends, handovers, then override starts.
+    # Explicit priorities encode that ordering. Emit the previous interval
+    # before applying the events, preserving [start, end) ownership.
+    end_event, handover_event, start_event, finish_event = range(4)
+    events = [(start, handover_event, base_user), (until, finish_event, "")]
     last_handover = (until - schedule_start) // duration
-    for shift_number in range(first_handover, last_handover + 1):
+    for shift_number in range(first_shift + 1, last_handover + 1):
         handover = schedule_start + shift_number * duration
         if handover < until:
-            boundaries.add(handover)
+            events.append((handover, handover_event, users[shift_number % len(users)]))
+    for override in parsed_overrides:
+        if override.end_at <= start:
+            continue
+        if override.start_at >= until:
+            break
+        events.append((max(start, override.start_at), start_event, override.user))
+        events.append((min(until, override.end_at), end_event, ""))
+    events.sort()
 
-    relevant_overrides = [
-        override
-        for override in parsed_overrides
-        if override.start_at < until and override.end_at > start
-    ]
-    for override in relevant_overrides:
-        boundaries.add(max(start, override.start_at))
-        boundaries.add(min(until, override.end_at))
-
-    ordered = sorted(boundaries)
     shifts: list[_Shift] = []
-    for left, right in zip(ordered, ordered[1:]):
-        # Ownership cannot change between these boundaries. Half-open intervals
-        # mean that an override ending at left is no longer active.
-        shift_number = (left - schedule_start) // duration
-        user = users[shift_number % len(users)]
-        for override in relevant_overrides:
-            if override.start_at <= left < override.end_at:
-                user = override.user
-                break
-        if shifts and shifts[-1].user == user:
-            shifts[-1] = _Shift(user, shifts[-1].start_at, right)
-        else:
-            shifts.append(_Shift(user, left, right))
+    covering_user = None
+    cursor = start
+    for instant, simultaneous in groupby(events, key=lambda event: event[0]):
+        if cursor < instant:
+            user = covering_user if covering_user is not None else base_user
+            if shifts and shifts[-1].user == user:
+                shifts[-1] = _Shift(user, shifts[-1].start_at, instant)
+            else:
+                shifts.append(_Shift(user, cursor, instant))
+        for _, kind, user in simultaneous:
+            if kind == end_event:
+                covering_user = None
+            elif kind == handover_event:
+                base_user = user
+            elif kind == start_event:
+                covering_user = user
+        cursor = instant
 
     return [
         {
