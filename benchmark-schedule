@@ -112,12 +112,15 @@ def summary(samples: list[float]) -> dict:
     }
 
 
-def measure_function(case: Scenario, expected: list, iterations: int, repeat: int) -> dict:
+def measure_function(
+    case: Scenario, expected: list, iterations: int, repeat: int,
+    renderer=render_schedule,
+) -> dict:
     # Prepare query strings outside the measurement, as a caller would do.
     start, end = timestamp(case.start), timestamp(case.end)
 
     def render():
-        return render_schedule(case.schedule, case.overrides, start, end)
+        return renderer(case.schedule, case.overrides, start, end)
 
     for _ in range(20):
         check_output(render(), expected, case.name)
@@ -131,13 +134,16 @@ def measure_function(case: Scenario, expected: list, iterations: int, repeat: in
     return summary(samples)
 
 
-def measure_cli(case: Scenario, expected: list, directory: Path, runs: int) -> dict:
+def measure_cli(
+    case: Scenario, expected: list, directory: Path, runs: int,
+    executable: Path = ROOT / "render-schedule",
+) -> dict:
     schedule_path = directory / "schedule.json"
     overrides_path = directory / "overrides.json"
     schedule_path.write_text(json.dumps(case.schedule), encoding="utf-8")
     overrides_path.write_text(json.dumps(case.overrides), encoding="utf-8")
     command = [
-        sys.executable, str(ROOT / "render-schedule"),
+        sys.executable, str(executable),
         f"--schedule={schedule_path}", f"--overrides={overrides_path}",
         f"--from={timestamp(case.start)}", f"--until={timestamp(case.end)}",
     ]
