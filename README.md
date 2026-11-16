@@ -34,30 +34,21 @@ them with `chmod +x render-schedule`.
   printing results, and reporting errors.
 - [`tests/`](tests/) contains scheduling and executable CLI tests.
 
-The algorithm partitions the query at every place ownership could change:
+The algorithm builds the normal schedule, then overlays temporary coverage:
 
-1. Clip the query to the schedule start and collect its endpoints.
-2. Add scheduled handovers and override endpoints inside that window.
-3. Sort and deduplicate the boundaries.
-4. For each consecutive pair, choose the override active at the left endpoint,
-   or calculate the normal owner from the original schedule start:
+1. Clip the query and generate the ordinary rotation entries inside it, starting
+   directly at the active shift rather than replaying earlier schedule history.
+2. Visit the validated overrides in chronological order.
+3. For each override, walk the current entries. Keep entries that do not intersect
+   it. Split intersecting entries into an optional original-owner prefix, the
+   override-covered intersection, and an optional original-owner suffix.
+4. Replace the entry list with those pieces, preserving chronological order.
+5. After all overrides, merge touching entries with equal owners.
 
-   ```text
-   shift_number = floor((interval_start - schedule_start) / shift_duration)
-   owner = users[shift_number modulo number_of_users]
-   ```
-
-5. Merge touching intervals with the same owner and format timestamps as UTC.
-
-Ownership cannot change between consecutive boundaries, so choosing the owner
-at the left endpoint covers the entire interval. Overrides do not change the
-underlying rotation: once an override ends, the original schedule determines
-who resumes. Calculating the first relevant handover directly avoids replaying
-the history of a long-running schedule.
-
-The implementation sorts the boundaries and scans relevant overrides for each
-interval. This favours a straightforward correctness argument for the specified
-windows of a few weeks and fewer than 100 overrides.
+This directly models the meaning of an override as replacing part of an existing
+schedule. Overrides spanning handovers may initially create several covered
+fragments; final coalescing joins them. Rebuilding and scanning the entries for
+each override trades throughput for an explicit before-and-after representation.
 
 ### Time rules and validation
 
