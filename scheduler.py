@@ -1,5 +1,6 @@
 """Render an on-call rotation by partitioning time at ownership boundaries."""
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -116,16 +117,20 @@ def render_schedule(
         boundaries.add(min(until, override.end_at))
 
     ordered = sorted(boundaries)
+    override_starts = [override.start_at for override in relevant_overrides]
     shifts: list[_Shift] = []
     for left, right in zip(ordered, ordered[1:]):
         # Ownership cannot change between these boundaries. Half-open intervals
         # mean that an override ending at left is no longer active.
         shift_number = (left - schedule_start) // duration
         user = users[shift_number % len(users)]
-        for override in relevant_overrides:
-            if override.start_at <= left < override.end_at:
+        # With non-overlapping overrides, only the latest start at or before
+        # left can cover this interval. It may already have ended, leaving a gap.
+        override_index = bisect_right(override_starts, left) - 1
+        if override_index >= 0:
+            override = relevant_overrides[override_index]
+            if left < override.end_at:
                 user = override.user
-                break
         if shifts and shifts[-1].user == user:
             shifts[-1] = _Shift(user, shifts[-1].start_at, right)
         else:
