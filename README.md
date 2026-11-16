@@ -34,30 +34,22 @@ them with `chmod +x render-schedule`.
   printing results, and reporting errors.
 - [`tests/`](tests/) contains scheduling and executable CLI tests.
 
-The algorithm partitions the query at every place ownership could change:
+The algorithm processes a chronological stream of ownership events:
 
-1. Clip the query to the schedule start and collect its endpoints.
-2. Add scheduled handovers and override endpoints inside that window.
-3. Sort and deduplicate the boundaries.
-4. For each consecutive pair, choose the override active at the left endpoint,
-   or calculate the normal owner from the original schedule start:
+1. Clip the query to the schedule start and calculate the initial normal owner.
+2. Create events for the in-window handovers and clipped override starts and
+   ends, plus the query endpoints.
+3. Sort events by timestamp and explicit priority. At a shared timestamp process
+   override ends, then normal handovers, then override starts.
+4. Before processing a group of simultaneous events, emit the interval since the
+   previous group using the currently active override or normal owner.
+5. Update the two ownership states and merge touching entries with equal owners.
 
-   ```text
-   shift_number = floor((interval_start - schedule_start) / shift_duration)
-   owner = users[shift_number modulo number_of_users]
-   ```
-
-5. Merge touching intervals with the same owner and format timestamps as UTC.
-
-Ownership cannot change between consecutive boundaries, so choosing the owner
-at the left endpoint covers the entire interval. Overrides do not change the
-underlying rotation: once an override ends, the original schedule determines
-who resumes. Calculating the first relevant handover directly avoids replaying
-the history of a long-running schedule.
-
-The implementation sorts the boundaries and scans relevant overrides for each
-interval. This favours a straightforward correctness argument for the specified
-windows of a few weeks and fewer than 100 overrides.
+Normal ownership continues changing beneath active overrides, so coverage resumes
+correctly when an override ends. Grouping all events at the same timestamp and
+emitting the preceding interval first enforces half-open interval semantics.
+The implementation sorts events and walks them once; it does not search for an
+override or recalculate the rotation index for every output fragment.
 
 ### Time rules and validation
 
