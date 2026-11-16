@@ -55,9 +55,11 @@ underlying rotation: once an override ends, the original schedule determines
 who resumes. Calculating the first relevant handover directly avoids replaying
 the history of a long-running schedule.
 
-The implementation sorts the boundaries and scans relevant overrides for each
-interval. This favours a straightforward correctness argument for the specified
-windows of a few weeks and fewer than 100 overrides.
+The implementation sorts the boundaries and binary-searches an array of override
+start times for each interval. Since overrides do not overlap, only the most
+recent override starting at or before the interval can cover it. Checking that
+candidate's end handles uncovered gaps. This retains the boundary invariant with
+logarithmic override lookup and no forward-only cursor state.
 
 ### Time rules and validation
 
