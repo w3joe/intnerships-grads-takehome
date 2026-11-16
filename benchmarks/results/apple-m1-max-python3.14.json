@@ -1,0 +1,176 @@
+{
+  "recorded_at_utc": "2026-11-16T07:45:09.618089Z",
+  "python": "3.14.8",
+  "implementation": "CPython",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "scheduler_sha256": "501116c3e78445001d2ccf01e11fec9aa2b4c4460a5a432e34d0fa9a03de6f29",
+  "timer": "perf_counter_ns",
+  "iterations_per_batch": 1000,
+  "function_batches": 7,
+  "function_warmup_calls": 20,
+  "cli_runs": 21,
+  "cli_warmup_runs": 1,
+  "gc_policy": "normal interpreter defaults; cyclic GC is not disabled",
+  "scenarios": [
+    {
+      "name": "baseline",
+      "from": "2026-11-06T17:00:00Z",
+      "until": "2026-11-27T17:00:00Z",
+      "window_days": 21,
+      "handover_interval_days": 7,
+      "users": 3,
+      "overrides": 0,
+      "entries": 3,
+      "correctness": "function and CLI match independent hourly reference",
+      "function": {
+        "median_ms_per_call": 0.011748375,
+        "min_ms_per_call": 0.011537208,
+        "max_ms_per_call": 0.012030334,
+        "samples_ms_per_call": [
+          0.011744583000000001,
+          0.011651583,
+          0.011966333000000001,
+          0.011748375,
+          0.011537208,
+          0.011966540999999999,
+          0.012030334
+        ]
+      },
+      "cli": {
+        "median_ms_per_call": 46.870333,
+        "min_ms_per_call": 44.336833,
+        "max_ms_per_call": 79.325583,
+        "samples_ms_per_call": [
+          46.183208,
+          46.47075,
+          46.005541,
+          47.054959,
+          45.286208,
+          46.870333,
+          52.210375,
+          79.325583,
+          74.233125,
+          50.066083,
+          46.194625,
+          46.033125,
+          44.898208,
+          47.7845,
+          44.336833,
+          46.087916,
+          49.72125,
+          48.419459,
+          47.373416,
+          48.012166,
+          45.11225
+        ]
+      }
+    },
+    {
+      "name": "99-overrides",
+      "from": "2026-11-06T17:00:00Z",
+      "until": "2026-11-27T17:00:00Z",
+      "window_days": 21,
+      "handover_interval_days": 7,
+      "users": 3,
+      "overrides": 99,
+      "entries": 199,
+      "correctness": "function and CLI match independent hourly reference",
+      "function": {
+        "median_ms_per_call": 1.268638166,
+        "min_ms_per_call": 1.2578731669999998,
+        "max_ms_per_call": 1.4583795,
+        "samples_ms_per_call": [
+          1.2578731669999998,
+          1.268638166,
+          1.2660581659999999,
+          1.272716583,
+          1.26586125,
+          1.4583795,
+          1.274549375
+        ]
+      },
+      "cli": {
+        "median_ms_per_call": 49.082916,
+        "min_ms_per_call": 45.766458,
+        "max_ms_per_call": 54.940792,
+        "samples_ms_per_call": [
+          52.315917,
+          49.035833,
+          53.634334,
+          54.940792,
+          48.121708,
+          47.151166,
+          47.182958,
+          50.210708,
+          50.839416,
+          48.959875,
+          47.97875,
+          50.753459,
+          49.399,
+          49.927042,
+          50.516584,
+          47.690458,
+          49.082916,
+          49.517833,
+          46.374958,
+          45.766458,
+          46.755167
+        ]
+      }
+    },
+    {
+      "name": "late-99-overrides",
+      "from": "2046-12-21T17:00:00Z",
+      "until": "2047-01-11T17:00:00Z",
+      "window_days": 21,
+      "handover_interval_days": 7,
+      "users": 3,
+      "overrides": 99,
+      "entries": 199,
+      "correctness": "function and CLI match independent hourly reference",
+      "function": {
+        "median_ms_per_call": 1.287044708,
+        "min_ms_per_call": 1.2689905419999998,
+        "max_ms_per_call": 1.40499875,
+        "samples_ms_per_call": [
+          1.2689905419999998,
+          1.2977480419999998,
+          1.287044708,
+          1.2758135,
+          1.2831100830000002,
+          1.4011955,
+          1.40499875
+        ]
+      },
+      "cli": {
+        "median_ms_per_call": 47.342709,
+        "min_ms_per_call": 44.986542,
+        "max_ms_per_call": 48.514833,
+        "samples_ms_per_call": [
+          48.225208,
+          47.587792,
+          47.542458,
+          48.033041,
+          47.487375,
+          48.514833,
+          48.3125,
+          47.372291,
+          46.732625,
+          47.342709,
+          47.171375,
+          44.986542,
+          45.336916,
+          46.997792,
+          46.880166,
+          45.580875,
+          46.940625,
+          48.42,
+          46.306875,
+          46.189125,
+          48.134083
+        ]
+      }
+    }
+  ]
+}

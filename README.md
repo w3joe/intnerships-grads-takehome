@@ -100,6 +100,14 @@ GitHub Actions runs the suite on Python 3.11 and 3.14 on Linux for pushes and pu
 requests. Changes use feature branches, Conventional Commit messages, and a pull
 request into this fork's `master` branch.
 
+## Performance measurements
+
+Run `./benchmark-schedule --output dist/benchmark-results.json` for a validated
+comparison of the scheduling function and full CLI on three representative
+workloads. It uses only the standard library and has no timing-based pass/fail
+thresholds. See [`benchmarks/README.md`](benchmarks/README.md) for the method,
+recorded local results, and a short explanation for the video walkthrough.
+
 ## Creating the submission ZIP
 
 After committing the changes you want to submit:
