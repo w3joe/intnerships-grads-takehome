@@ -21,3 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run unit and CLI tests
         run: python3 -m unittest discover -s tests -v
+      - name: Check benchmark correctness and report generation
+        run: >-
+          python3 benchmark-schedule --iterations 1 --repeat 1 --cli-runs 1
+          --output="$RUNNER_TEMP/benchmark-report.json"

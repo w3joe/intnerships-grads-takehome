@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Check representative workloads, then measure function and CLI wall time."""
+
+import argparse
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+from pathlib import Path
+import platform
+import statistics
+import subprocess
+import sys
+import tempfile
+from time import perf_counter_ns
+
+from scheduler import render_schedule
+
+
+ROOT = Path(__file__).resolve().parent
+ANCHOR = datetime(2026, 11, 6, 17, tzinfo=timezone.utc)
+
+
+def timestamp(instant: datetime) -> str:
+    return instant.isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class Scenario:
+    name: str
+    schedule: dict
+    overrides: list[dict]
+    start: datetime
+    end: datetime
+
+    def render(self) -> list[dict[str, str]]:
+        return render_schedule(
+            self.schedule, self.overrides, timestamp(self.start), timestamp(self.end)
+        )
+
+
+def scenarios() -> list[Scenario]:
+    schedule = {
+        "users": ["alice", "bob", "charlie"],
+        "handover_start_at": timestamp(ANCHOR),
+        "handover_interval_days": 7,
+    }
+    cases = []
+    for name, offset_days, count in [
+        ("baseline", 0, 0),
+        ("99-overrides", 0, 99),
+        ("late-99-overrides", 21 * 350, 99),
+    ]:
+        start = ANCHOR + timedelta(days=offset_days)
+        overrides = [
+            {
+                "user": "dana",
+                "start_at": timestamp(start + timedelta(hours=1 + index * 5)),
+                "end_at": timestamp(start + timedelta(hours=3 + index * 5)),
+            }
+            for index in range(count)
+        ]
+        # Deterministic reverse order also exercises input sorting.
+        cases.append(Scenario(
+            name, schedule, list(reversed(overrides)), start, start + timedelta(days=21)
+        ))
+    return cases
+
+
+def hourly_reference(case: Scenario) -> list[dict[str, str]]:
+    """Independent reference for these fixtures, whose edges are all hourly.
+
+    Visit every hour rather than using the production boundary algorithm, then
+    combine equal consecutive owners into the expected JSON representation.
+    """
+    overrides = [
+        (datetime.fromisoformat(item["start_at"]),
+         datetime.fromisoformat(item["end_at"]), item["user"])
+        for item in case.overrides
+    ]
+    result = []
+    current = case.start
+    while current < case.end:
+        elapsed_hours = (current - ANCHOR) // timedelta(hours=1)
+        user = ["alice", "bob", "charlie"][(elapsed_hours // (7 * 24)) % 3]
+        for start, end, covering_user in overrides:
+            if start <= current < end:
+                user = covering_user
+                break
+        end = current + timedelta(hours=1)
+        if result and result[-1]["user"] == user:
+            result[-1]["end_at"] = timestamp(end)
+        else:
+            result.append({
+                "user": user, "start_at": timestamp(current), "end_at": timestamp(end)
+            })
+        current = end
+    return result
+
+
+def check_output(actual: object, expected: object, label: str) -> None:
+    if actual != expected:
+        raise ValueError(f"{label}: output differs from the hourly reference")
+
+
+def summary(samples: list[float]) -> dict:
+    return {
+        "median_ms_per_call": statistics.median(samples),
+        "min_ms_per_call": min(samples),
+        "max_ms_per_call": max(samples),
+        "samples_ms_per_call": samples,
+    }
+
+
+def measure_function(case: Scenario, expected: list, iterations: int, repeat: int) -> dict:
+    # Prepare query strings outside the measurement, as a caller would do.
+    start, end = timestamp(case.start), timestamp(case.end)
+
+    def render():
+        return render_schedule(case.schedule, case.overrides, start, end)
+
+    for _ in range(20):
+        check_output(render(), expected, case.name)
+    samples = []
+    for _ in range(repeat):
+        started = perf_counter_ns()
+        for _ in range(iterations):
+            render()
+        samples.append((perf_counter_ns() - started) / iterations / 1_000_000)
+    check_output(render(), expected, case.name)
+    return summary(samples)
+
+
+def measure_cli(case: Scenario, expected: list, directory: Path, runs: int) -> dict:
+    schedule_path = directory / "schedule.json"
+    overrides_path = directory / "overrides.json"
+    schedule_path.write_text(json.dumps(case.schedule), encoding="utf-8")
+    overrides_path.write_text(json.dumps(case.overrides), encoding="utf-8")
+    command = [
+        sys.executable, str(ROOT / "render-schedule"),
+        f"--schedule={schedule_path}", f"--overrides={overrides_path}",
+        f"--from={timestamp(case.start)}", f"--until={timestamp(case.end)}",
+    ]
+
+    def run():
+        return subprocess.run(
+            command, cwd=directory, capture_output=True, text=True, check=True, timeout=30
+        )
+
+    def check(result):
+        check_output(json.loads(result.stdout), expected, f"{case.name} CLI")
+        if result.stderr:
+            raise ValueError(f"{case.name} CLI: unexpected stderr: {result.stderr}")
+
+    check(run())  # Warm process-launch and filesystem caches before collecting samples.
+    samples = []
+    for _ in range(runs):
+        started = perf_counter_ns()
+        result = run()
+        samples.append((perf_counter_ns() - started) / 1_000_000)
+        check(result)  # Reference comparison is outside the timed region.
+    return summary(samples)
+
+
+def positive_integer(value: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--iterations", type=positive_integer, default=1000,
+                        help="function calls per batch (default: 1000)")
+    parser.add_argument("--repeat", type=positive_integer, default=7,
+                        help="function timing batches (default: 7)")
+    parser.add_argument("--cli-runs", type=positive_integer, default=21,
+                        help="timed CLI process launches per scenario (default: 21)")
+    parser.add_argument("--output", type=Path, help="also save a JSON report to this path")
+    args = parser.parse_args()
+
+    report = {
+        "recorded_at_utc": timestamp(datetime.now(timezone.utc)),
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "architecture": platform.machine(),
+        "scheduler_sha256": hashlib.sha256((ROOT / "scheduler.py").read_bytes()).hexdigest(),
+        "timer": "perf_counter_ns",
+        "iterations_per_batch": args.iterations,
+        "function_batches": args.repeat,
+        "function_warmup_calls": 20,
+        "cli_runs": args.cli_runs,
+        "cli_warmup_runs": 1,
+        "gc_policy": "normal interpreter defaults; cyclic GC is not disabled",
+        "scenarios": [],
+    }
+    print(f"Python {report['python']} ({report['architecture']}); timings in milliseconds")
+    print(f"{'Scenario':<22} {'Entries':>7} {'Function median':>17} {'CLI median':>13}")
+    try:
+        with tempfile.TemporaryDirectory(prefix="schedule-benchmark-") as temporary:
+            for case in scenarios():
+                expected = hourly_reference(case)
+                check_output(case.render(), expected, case.name)
+                function = measure_function(case, expected, args.iterations, args.repeat)
+                cli = measure_cli(case, expected, Path(temporary), args.cli_runs)
+                report["scenarios"].append({
+                    "name": case.name,
+                    "from": timestamp(case.start),
+                    "until": timestamp(case.end),
+                    "window_days": 21,
+                    "handover_interval_days": 7,
+                    "users": 3,
+                    "overrides": len(case.overrides),
+                    "entries": len(expected),
+                    "correctness": "function and CLI match independent hourly reference",
+                    "function": function,
+                    "cli": cli,
+                })
+                print(f"{case.name:<22} {len(expected):>7} "
+                      f"{function['median_ms_per_call']:>17.4f} "
+                      f"{cli['median_ms_per_call']:>13.4f}")
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            print(f"JSON report: {args.output}")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        parser.exit(1, f"benchmark failed: {error}\n")
+
+
+if __name__ == "__main__":
+    main()
