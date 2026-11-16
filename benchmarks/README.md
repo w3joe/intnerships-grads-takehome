@@ -104,7 +104,10 @@ These local results support keeping the straightforward implementation for the
 stated small workloads. They do not establish an exhaustive worst case or a
 latency promise for other machines or input distributions.
 
-For the video, a concise explanation is:
+These are measurements of the original algorithm. For fresh side-by-side results
+across six implementations, see the [algorithm comparison](COMPARISON.md).
+
+For the video, a concise explanation of the original implementation is:
 
 > I prioritised correctness and checked the implementation with representative
 > benchmarks. On this machine, the scheduling function took a median of about

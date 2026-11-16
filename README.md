@@ -108,6 +108,11 @@ workloads. It uses only the standard library and has no timing-based pass/fail
 thresholds. See [`benchmarks/README.md`](benchmarks/README.md) for the method,
 recorded local results, and a short explanation for the video walkthrough.
 
+For the separate experiment comparing six approaches, including boundary sweeps,
+gap filling, binary search, events, and interval overlay, see
+[`benchmarks/COMPARISON.md`](benchmarks/COMPARISON.md). It includes the candidate
+branches, fair timing method, results, and tradeoffs.
+
 ## Creating the submission ZIP
 
 After committing the changes you want to submit:
