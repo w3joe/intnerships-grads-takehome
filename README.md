@@ -1,5 +1,135 @@
 # Internship, placement and graduate take home assessment
 
+## Running the solution
+
+Requires **Python 3.11 or newer** on macOS or Linux. There are no third-party
+dependencies to install. Run these commands from the repository root:
+
+```sh
+./render-schedule \
+  --schedule=examples/schedule.json \
+  --overrides=examples/overrides.json \
+  --from='2026-11-06T17:00:00Z' \
+  --until='2026-11-20T17:00:00Z'
+```
+
+This reproduces the assessment example; the expected result is in
+[`examples/expected.json`](examples/expected.json). The input files must contain
+valid JSON (without comments). Use an empty array, `[]`, for no overrides.
+Both `--argument=value` and `--argument value` are supported.
+
+The executable writes only JSON to stdout on success. Errors go to stderr with
+exit code 2. Run `./render-schedule --help` for argument help.
+
+On Windows, invoke the program as `python render-schedule` with the same arguments.
+If an extraction tool discards executable permissions on macOS or Linux, restore
+them with `chmod +x render-schedule`.
+
+## Implementation
+
+- [`scheduler.py`](scheduler.py) contains the pure `render_schedule` function:
+  decoded JSON and timestamp strings in, a JSON-ready list out, with no I/O or
+  input mutation. Invalid inputs raise `ValueError`.
+- [`render-schedule`](render-schedule) handles argument parsing, reading JSON files,
+  printing results, and reporting errors.
+- [`tests/`](tests/) contains scheduling and executable CLI tests.
+
+The algorithm partitions the query at every place ownership could change:
+
+1. Clip the query to the schedule start and collect its endpoints.
+2. Add scheduled handovers and override endpoints inside that window.
+3. Sort and deduplicate the boundaries.
+4. For each consecutive pair, choose the override active at the left endpoint,
+   or calculate the normal owner from the original schedule start:
+
+   ```text
+   shift_number = floor((interval_start - schedule_start) / shift_duration)
+   owner = users[shift_number modulo number_of_users]
+   ```
+
+5. Merge touching intervals with the same owner and format timestamps as UTC.
+
+Ownership cannot change between consecutive boundaries, so choosing the owner
+at the left endpoint covers the entire interval. Overrides do not change the
+underlying rotation: once an override ends, the original schedule determines
+who resumes. Calculating the first relevant handover directly avoids replaying
+the history of a long-running schedule.
+
+The implementation sorts the boundaries and scans relevant overrides for each
+interval. This favours a straightforward correctness argument for the specified
+windows of a few weeks and fewer than 100 overrides.
+
+### Time rules and validation
+
+- Intervals are half-open: `[start, end)`. An override ending exactly when another
+  starts does not overlap it.
+- Timestamps are timezone-aware ISO 8601 strings. `Z` and numeric UTC offsets are
+  accepted; naive timestamps are rejected. Output uses UTC with a `Z` suffix.
+  Fractional seconds are supported to Python datetime's microsecond precision.
+- One interval day means exactly 24 elapsed hours in UTC. Named timezones and
+  daylight-saving wall-clock scheduling are outside this input format.
+- Before `handover_start_at` there is no coverage. Queries spanning that point
+  start their output there; queries wholly before it return `[]`.
+- Equal query endpoints return `[]`; an end before the start is an error.
+- Users must be a nonempty array of nonempty strings. The handover interval must
+  be a positive integer number of days.
+- Overrides must have positive duration, start at or after the schedule start,
+  and not overlap. They may be unsorted or name someone outside the rotation.
+  Touching overrides are allowed. Overrides outside the query do not affect it.
+- Adjacent entries with the same owner are merged, including across handovers
+  and override boundaries. No zero-duration entries are emitted.
+
+## Testing
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+Tests cover the assessment example, rotation wraparound, clipping, empty windows,
+queries long after the schedule began, overrides crossing several handovers,
+adjacent and unsorted overrides, same-owner merging, UTC offsets, fractional
+seconds, invalid inputs, and CLI output streams and exit codes. The CLI is also
+run from another working directory to check file and import behaviour.
+
+A deterministic set of 50 generated scenarios compares the scheduler with an
+independent hour-by-hour ownership reference and checks continuity and bounds.
+All generated transitions are on hour boundaries; dedicated examples cover
+sub-hour and fractional-second transitions.
+
+GitHub Actions runs the suite on Python 3.11 and 3.14 on Linux for pushes and pull
+requests. Changes use feature branches, Conventional Commit messages, and a pull
+request into this fork's `master` branch.
+
+## Creating the submission ZIP
+
+After committing the changes you want to submit:
+
+```sh
+mkdir -p dist
+git archive --format=zip --prefix=schedule-renderer/ \
+  --output=dist/schedule-renderer.zip HEAD
+```
+
+This includes committed code, documentation, examples, and tests, without Git
+history or local caches. Extract the ZIP into a fresh directory and run the
+example and test commands above before submitting it.
+
+## Five-minute walkthrough outline
+
+- **0:00–0:40:** Describe the inputs, expected output, and half-open intervals.
+- **0:40–2:00:** Explain boundary partitioning and how the rotation index works.
+- **2:00–3:00:** Walk through an override crossing a handover, showing why the
+  rotation resumes correctly. Show how the CLI calls the pure function.
+- **3:00–4:15:** Run the example and tests; explain clipping, timezone decisions,
+  and the independent ownership reference.
+- **4:15–5:00:** Discuss product extensions: shift swaps with approval, upcoming
+  shift reminders, coverage previews, and on-call workload reports.
+
+Record your own explanation and include the video link in the submission notes.
+The original assessment brief follows.
+
+---
+
 [job-ad]: https://incident.io/careers#open-roles
 
 ## About us
