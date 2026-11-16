@@ -117,15 +117,23 @@ def render_schedule(
 
     ordered = sorted(boundaries)
     shifts: list[_Shift] = []
+    override_index = 0
     for left, right in zip(ordered, ordered[1:]):
         # Ownership cannot change between these boundaries. Half-open intervals
         # mean that an override ending at left is no longer active.
         shift_number = (left - schedule_start) // duration
         user = users[shift_number % len(users)]
-        for override in relevant_overrides:
-            if override.start_at <= left < override.end_at:
+        # Intervals and overrides are both chronological. Once an override has
+        # ended, no later interval needs to examine it again.
+        while (
+            override_index < len(relevant_overrides)
+            and relevant_overrides[override_index].end_at <= left
+        ):
+            override_index += 1
+        if override_index < len(relevant_overrides):
+            override = relevant_overrides[override_index]
+            if override.start_at <= left:
                 user = override.user
-                break
         if shifts and shifts[-1].user == user:
             shifts[-1] = _Shift(user, shifts[-1].start_at, right)
         else:
