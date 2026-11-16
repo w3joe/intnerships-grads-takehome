@@ -34,30 +34,25 @@ them with `chmod +x render-schedule`.
   printing results, and reporting errors.
 - [`tests/`](tests/) contains scheduling and executable CLI tests.
 
-The algorithm partitions the query at every place ownership could change:
+The algorithm fills normal rotation into the gaps between overrides:
 
-1. Clip the query to the schedule start and collect its endpoints.
-2. Add scheduled handovers and override endpoints inside that window.
-3. Sort and deduplicate the boundaries.
-4. For each consecutive pair, choose the override active at the left endpoint,
-   or calculate the normal owner from the original schedule start:
+1. Clip the query to the schedule start and begin a cursor at that point.
+2. Visit the validated overrides in chronological order, skipping ones outside
+   the query.
+3. Generate ordinary shifts between the cursor and the next override start.
+4. Emit that override directly, clipped to the query, and move the cursor to its
+   end. Overrides do not move the underlying rotation anchor.
+5. Fill the final gap up to the query end and merge touching equal owners.
 
-   ```text
-   shift_number = floor((interval_start - schedule_start) / shift_duration)
-   owner = users[shift_number modulo number_of_users]
-   ```
+To fill a gap, calculate the active shift number from elapsed time since the
+schedule anchor, select the user with modulo arithmetic, and advance to either
+that shift's end or the gap's end. This generates only uncovered portions of the
+normal schedule and works for overrides spanning many handovers.
 
-5. Merge touching intervals with the same owner and format timestamps as UTC.
-
-Ownership cannot change between consecutive boundaries, so choosing the owner
-at the left endpoint covers the entire interval. Overrides do not change the
-underlying rotation: once an override ends, the original schedule determines
-who resumes. Calculating the first relevant handover directly avoids replaying
-the history of a long-running schedule.
-
-The implementation sorts the boundaries and scans relevant overrides for each
-interval. This favours a straightforward correctness argument for the specified
-windows of a few weeks and fewer than 100 overrides.
+The cursor marks the end of coverage already emitted. Non-overlapping, sorted
+inputs mean the next uncovered gap can be filled without revisiting earlier
+intervals. The implementation sorts overrides during validation, then walks them
+once; there is no global boundary list or repeated override scan.
 
 ### Time rules and validation
 

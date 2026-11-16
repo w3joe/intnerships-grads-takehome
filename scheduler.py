@@ -1,4 +1,4 @@
-"""Render an on-call rotation by partitioning time at ownership boundaries."""
+"""Render an on-call rotation by filling gaps between temporary overrides."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -97,39 +97,38 @@ def render_schedule(
     if start >= until:
         return []
 
-    boundaries = {start, until}
-    # Jump directly into the rotation rather than replaying earlier shifts.
-    first_handover = (start - schedule_start) // duration + 1
-    last_handover = (until - schedule_start) // duration
-    for shift_number in range(first_handover, last_handover + 1):
-        handover = schedule_start + shift_number * duration
-        if handover < until:
-            boundaries.add(handover)
-
-    relevant_overrides = [
-        override
-        for override in parsed_overrides
-        if override.start_at < until and override.end_at > start
-    ]
-    for override in relevant_overrides:
-        boundaries.add(max(start, override.start_at))
-        boundaries.add(min(until, override.end_at))
-
-    ordered = sorted(boundaries)
     shifts: list[_Shift] = []
-    for left, right in zip(ordered, ordered[1:]):
-        # Ownership cannot change between these boundaries. Half-open intervals
-        # mean that an override ending at left is no longer active.
-        shift_number = (left - schedule_start) // duration
-        user = users[shift_number % len(users)]
-        for override in relevant_overrides:
-            if override.start_at <= left < override.end_at:
-                user = override.user
-                break
+
+    def append_shift(user: str, left: datetime, right: datetime) -> None:
+        if left >= right:
+            return
         if shifts and shifts[-1].user == user:
             shifts[-1] = _Shift(user, shifts[-1].start_at, right)
         else:
             shifts.append(_Shift(user, left, right))
+
+    def append_rotation(left: datetime, right: datetime) -> None:
+        # Only generate ordinary shifts where no override supplies coverage.
+        while left < right:
+            elapsed = left - schedule_start
+            shift_number = elapsed // duration
+            remaining = duration - elapsed % duration
+            end = left + min(remaining, right - left)
+            append_shift(users[shift_number % len(users)], left, end)
+            left = end
+
+    cursor = start
+    for override in parsed_overrides:
+        if override.end_at <= start:
+            continue
+        if override.start_at >= until:
+            break
+        left = max(start, override.start_at)
+        right = min(until, override.end_at)
+        append_rotation(cursor, left)
+        append_shift(override.user, left, right)
+        cursor = right
+    append_rotation(cursor, until)
 
     return [
         {
