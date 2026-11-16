@@ -1,4 +1,4 @@
-"""Render an on-call rotation by partitioning time at ownership boundaries."""
+"""Render an on-call rotation by overlaying overrides onto normal rotation entries."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -97,39 +97,45 @@ def render_schedule(
     if start >= until:
         return []
 
-    boundaries = {start, until}
-    # Jump directly into the rotation rather than replaying earlier shifts.
-    first_handover = (start - schedule_start) // duration + 1
-    last_handover = (until - schedule_start) // duration
-    for shift_number in range(first_handover, last_handover + 1):
-        handover = schedule_start + shift_number * duration
-        if handover < until:
-            boundaries.add(handover)
+    # Build the ordinary rotation first, jumping directly to the query window.
+    projected: list[_Shift] = []
+    cursor = start
+    while cursor < until:
+        elapsed = cursor - schedule_start
+        shift_number = elapsed // duration
+        remaining = duration - elapsed % duration
+        end = cursor + min(remaining, until - cursor)
+        projected.append(_Shift(users[shift_number % len(users)], cursor, end))
+        cursor = end
 
-    relevant_overrides = [
-        override
-        for override in parsed_overrides
-        if override.start_at < until and override.end_at > start
-    ]
-    for override in relevant_overrides:
-        boundaries.add(max(start, override.start_at))
-        boundaries.add(min(until, override.end_at))
+    # Applying an override replaces intersecting pieces while preserving the
+    # portions before and after it. Existing entries stay in chronological order.
+    for override in parsed_overrides:
+        if override.end_at <= start:
+            continue
+        if override.start_at >= until:
+            break
+        replaced: list[_Shift] = []
+        for shift in projected:
+            if shift.end_at <= override.start_at or shift.start_at >= override.end_at:
+                replaced.append(shift)
+                continue
+            if shift.start_at < override.start_at:
+                replaced.append(_Shift(shift.user, shift.start_at, override.start_at))
+            replaced.append(_Shift(
+                override.user, max(shift.start_at, override.start_at),
+                min(shift.end_at, override.end_at),
+            ))
+            if shift.end_at > override.end_at:
+                replaced.append(_Shift(shift.user, override.end_at, shift.end_at))
+        projected = replaced
 
-    ordered = sorted(boundaries)
     shifts: list[_Shift] = []
-    for left, right in zip(ordered, ordered[1:]):
-        # Ownership cannot change between these boundaries. Half-open intervals
-        # mean that an override ending at left is no longer active.
-        shift_number = (left - schedule_start) // duration
-        user = users[shift_number % len(users)]
-        for override in relevant_overrides:
-            if override.start_at <= left < override.end_at:
-                user = override.user
-                break
-        if shifts and shifts[-1].user == user:
-            shifts[-1] = _Shift(user, shifts[-1].start_at, right)
+    for shift in projected:
+        if shifts and shifts[-1].user == shift.user:
+            shifts[-1] = _Shift(shift.user, shifts[-1].start_at, shift.end_at)
         else:
-            shifts.append(_Shift(user, left, right))
+            shifts.append(shift)
 
     return [
         {
